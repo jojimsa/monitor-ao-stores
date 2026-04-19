@@ -4,7 +4,10 @@ on:
   push:
     branches: [ "main" ]
   schedule:
-    - cron: '*/10 * * * *'
+    # Ajustado para Costa Rica (UTC-6)
+    # 13-23 UTC = 7am a 5pm CR
+    # 00 UTC = 6pm CR
+    - cron: '*/10 13-23,0 * * *'
   workflow_dispatch:
 
 jobs:
