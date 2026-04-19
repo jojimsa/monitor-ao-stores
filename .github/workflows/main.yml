@@ -35,3 +35,4 @@ jobs:
           git add vistos.txt || exit 0
           git commit -m "Actualizar lista de vistos" || exit 0
           git push
+          
