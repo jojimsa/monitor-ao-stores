@@ -20,7 +20,9 @@ def revisar_tienda():
     print("Revisando AO Stores...")
     try:
         # 1. Obtener la página
-        response = requests.get(URL_TIENDA, timeout=15)
+                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+        response = requests.get(URL_TIENDA, headers=headers, timeout=15)
+
         soup = BeautifulSoup(response.text, 'html.parser')
         
         # 2. Buscar productos (Ajustado a la estructura común de la tienda)
