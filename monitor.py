@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import os
 
-# Configuración desde la "caja fuerte" de GitHub
+# Configuración
 TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 URL_TIENDA = "https://www.aostores.com/advanced_search"
@@ -17,19 +17,24 @@ def enviar_mensaje(texto):
         print(f"Error enviando mensaje: {e}")
 
 def revisar_tienda():
-    print("Revisando AO Stores...")
+    print("Iniciando revisión de AO Stores...")
     try:
-        # 1. Obtener la página con un User-Agent real para evitar bloqueos
+        # Headers más completos para parecer un navegador real
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3',
+            'Referer': 'https://www.google.com/'
         }
-        response = requests.get(URL_TIENDA, headers=headers, timeout=15)
+        
+        response = requests.get(URL_TIENDA, headers=headers, timeout=20)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # 2. Buscar productos
-        productos = soup.find_all('div', class_='product-item-info') 
+        # Intentamos capturar los productos con selectores más comunes en Magento (el sistema de esa tienda)
+        productos = soup.select('.product-item') or soup.select('.product-item-info')
         
-        # 3. Leer productos ya vistos
+        print(f"Productos detectados en la página: {len(productos)}")
+        
         if os.path.exists(ARCHIVO_MEMORIA):
             with open(ARCHIVO_MEMORIA, "r") as f:
                 vistos = set(f.read().splitlines())
@@ -40,28 +45,31 @@ def revisar_tienda():
 
         for p in productos:
             try:
-                enlace = p.find('a', class_='product-item-link')
-                nombre = enlace.text.strip()
-                link = enlace['href']
+                # Intentamos obtener el link y el nombre de forma más robusta
+                enlace_tag = p.find('a', class_='product-item-link') or p.find('a')
+                if not enlace_tag: continue
                 
-                if nombre not in vistos:
+                nombre = enlace_tag.get_text().strip()
+                link = enlace_tag['href']
+                
+                if nombre and nombre not in vistos:
                     mensaje = f"<b>🚨 ¡NUEVA OFERTA EN AO!</b>\n\n{nombre}\n\n<a href='{link}'>Ver producto aquí</a>"
                     enviar_mensaje(mensaje)
                     vistos.add(nombre)
                     nuevos_encontrados = True
-            except:
+            except Exception as e:
+                print(f"Error procesando un producto: {e}")
                 continue
 
-        # 4. Guardar la memoria actualizada
         if nuevos_encontrados:
             with open(ARCHIVO_MEMORIA, "w") as f:
                 f.write("\n".join(vistos))
-            print(f"Se encontraron nuevos productos.")
+            print("Se enviaron nuevas alertas.")
         else:
-            print("No hay nada nuevo por ahora.")
+            print("No se encontraron productos nuevos en esta vuelta.")
             
     except Exception as e:
-        print(f"Error en el proceso: {e}")
+        print(f"Error crítico en el proceso: {e}")
 
 if __name__ == "__main__":
     revisar_tienda()
