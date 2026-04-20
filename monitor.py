@@ -1,39 +1,39 @@
 import requests
 from bs4 import BeautifulSoup
 import os
+import re
 
 # Configuración
 TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+# VOLVEMOS A TU URL ORIGINAL
 URL_TIENDA = "https://www.aostores.com/advanced_search"
 ARCHIVO_MEMORIA = "vistos.txt"
 
 def enviar_mensaje(texto):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": texto, "parse_mode": "HTML"}
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"Error enviando mensaje: {e}")
+    requests.post(url, json=payload)
 
 def revisar_tienda():
-    print("Iniciando revisión de AO Stores...")
+    print(f"Revisando URL original: {URL_TIENDA}")
     try:
-        # Headers más completos para parecer un navegador real
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language': 'es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3',
-            'Referer': 'https://www.google.com/'
         }
         
         response = requests.get(URL_TIENDA, headers=headers, timeout=20)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Intentamos capturar los productos con selectores más comunes en Magento (el sistema de esa tienda)
-        productos = soup.select('.product-item') or soup.select('.product-item-info')
+        # MÉTODO NUEVO: Buscamos todos los enlaces que tengan la estructura de un producto de AO
+        # Usualmente los productos en esta tienda tienen '/producto/' en el link o clases específicas
+        enlaces_productos = soup.find_all('a', href=re.compile(r'/producto/|/p/'))
         
-        print(f"Productos detectados en la página: {len(productos)}")
+        # Si el método anterior falla, intentamos con el selector de items
+        if not enlaces_productos:
+            enlaces_productos = soup.select('.product-item-link') or soup.select('.product-item a')
+
+        print(f"Productos detectados: {len(enlaces_productos)}")
         
         if os.path.exists(ARCHIVO_MEMORIA):
             with open(ARCHIVO_MEMORIA, "r") as f:
@@ -43,33 +43,29 @@ def revisar_tienda():
 
         nuevos_encontrados = False
 
-        for p in productos:
-            try:
-                # Intentamos obtener el link y el nombre de forma más robusta
-                enlace_tag = p.find('a', class_='product-item-link') or p.find('a')
-                if not enlace_tag: continue
-                
-                nombre = enlace_tag.get_text().strip()
-                link = enlace_tag['href']
-                
-                if nombre and nombre not in vistos:
-                    mensaje = f"<b>🚨 ¡NUEVA OFERTA EN AO!</b>\n\n{nombre}\n\n<a href='{link}'>Ver producto aquí</a>"
-                    enviar_mensaje(mensaje)
-                    vistos.add(nombre)
-                    nuevos_encontrados = True
-            except Exception as e:
-                print(f"Error procesando un producto: {e}")
-                continue
+        for link_tag in enlaces_productos:
+            link = link_tag.get('href')
+            nombre = link_tag.get_text().strip()
+            
+            # Limpiamos el nombre porque a veces traen espacios extraños
+            if not nombre:
+                nombre = link.split('/')[-1].replace('.html', '').replace('-', ' ')
+
+            if link and link not in vistos:
+                mensaje = f"<b>🚨 NUEVA OFERTA (Advanced Search)</b>\n\n{nombre.upper()}\n\n<a href='{link}'>Ver producto aquí</a>"
+                enviar_mensaje(mensaje)
+                vistos.add(link) # Guardamos el link que es único
+                nuevos_encontrados = True
 
         if nuevos_encontrados:
             with open(ARCHIVO_MEMORIA, "w") as f:
                 f.write("\n".join(vistos))
-            print("Se enviaron nuevas alertas.")
+            print("Novedades enviadas a Telegram.")
         else:
-            print("No se encontraron productos nuevos en esta vuelta.")
+            print("No se detectaron cambios en los productos.")
             
     except Exception as e:
-        print(f"Error crítico en el proceso: {e}")
+        print(f"Error: {e}")
 
 if __name__ == "__main__":
     revisar_tienda()
