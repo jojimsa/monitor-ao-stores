@@ -1,40 +1,30 @@
-import os
-import time
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 import requests
+import os
 
 # Configuración
 TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-URL_TIENDA = "https://www.aostores.com/advanced_search"
+# URL de la API interna que alimenta la página de Advanced Search
+URL_API = "https://www.aostores.com/rest/V1/search?searchCriteria[requestName]=advanced_search_container&searchCriteria[filterGroups][0][filters][0][field]=category_id&searchCriteria[filterGroups][0][filters][0][value]=2"
 ARCHIVO_MEMORIA = "vistos.txt"
 
 def enviar_mensaje(texto):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": texto, "parse_mode": "HTML"}
-    requests.post(url, json=payload)
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        print(f"Error enviando a Telegram: {e}")
 
 def revisar_tienda():
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    
-    driver = webdriver.Chrome(options=chrome_options)
-    
     try:
-        driver.get(URL_TIENDA)
+        # Consultamos directamente la fuente de datos
+        headers = {'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/json'}
+        response = requests.get(URL_API, headers=headers, timeout=20)
+        datos = response.json()
         
-        # Espera hasta 20 segundos a que aparezca al menos un producto
-        wait = WebDriverWait(driver, 20)
-        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "product-item")))
-        
-        # Extraer los productos una vez cargados
-        items = driver.find_elements(By.CLASS_NAME, "product-item")
+        # Extraemos los productos del JSON de respuesta
+        items = datos.get('items', [])
         print(f"Productos detectados: {len(items)}")
         
         if os.path.exists(ARCHIVO_MEMORIA):
@@ -43,28 +33,28 @@ def revisar_tienda():
         else:
             vistos = set()
 
-        nuevos = False
+        nuevos_encontrados = False
         for item in items:
-            try:
-                link_tag = item.find_element(By.CLASS_NAME, "product-item-link")
-                nombre = link_tag.text.strip()
-                link = link_tag.get_attribute("href")
-                
-                if link not in vistos:
-                    enviar_mensaje(f"<b>🚨 NUEVA OFERTA</b>\n\n{nombre}\n\n<a href='{link}'>Ver producto</a>")
-                    vistos.add(link)
-                    nuevos = True
-            except:
-                continue
+            # En el JSON de esta tienda, el ID o la URL están en los atributos
+            sku = item.get('sku')
+            # Construimos la URL basada en el SKU para que el usuario pueda hacer clic
+            link = f"https://www.aostores.com/catalogsearch/result/?q={sku}"
+            
+            if sku and sku not in vistos:
+                mensaje = f"<b>🚨 NUEVA OFERTA</b>\nSKU: {sku}\n<a href='{link}'>Ver resultado de búsqueda</a>"
+                enviar_mensaje(mensaje)
+                vistos.add(sku)
+                nuevos_encontrados = True
 
-        if nuevos:
+        if nuevos_encontrados:
             with open(ARCHIVO_MEMORIA, "w") as f:
                 f.write("\n".join(vistos))
+            print("Novedades procesadas.")
+        else:
+            print("Sin productos nuevos.")
 
     except Exception as e:
-        print(f"Error: No se cargaron los productos en el tiempo esperado. {e}")
-    finally:
-        driver.quit()
+        print(f"Error en la revisión: {e}")
 
 if __name__ == "__main__":
     revisar_tienda()
