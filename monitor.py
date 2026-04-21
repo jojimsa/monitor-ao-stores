@@ -1,12 +1,15 @@
-import requests
-from bs4 import BeautifulSoup
 import os
-import re
+import time
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import requests
 
 # Configuración
 TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-# VOLVEMOS A TU URL ORIGINAL
 URL_TIENDA = "https://www.aostores.com/advanced_search"
 ARCHIVO_MEMORIA = "vistos.txt"
 
@@ -16,24 +19,23 @@ def enviar_mensaje(texto):
     requests.post(url, json=payload)
 
 def revisar_tienda():
-    print(f"Revisando URL original: {URL_TIENDA}")
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    
+    driver = webdriver.Chrome(options=chrome_options)
+    
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        }
+        driver.get(URL_TIENDA)
         
-        response = requests.get(URL_TIENDA, headers=headers, timeout=20)
-        soup = BeautifulSoup(response.text, 'html.parser')
+        # Espera hasta 20 segundos a que aparezca al menos un producto
+        wait = WebDriverWait(driver, 20)
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "product-item")))
         
-        # MÉTODO NUEVO: Buscamos todos los enlaces que tengan la estructura de un producto de AO
-        # Usualmente los productos en esta tienda tienen '/producto/' en el link o clases específicas
-        enlaces_productos = soup.find_all('a', href=re.compile(r'/producto/|/p/'))
-        
-        # Si el método anterior falla, intentamos con el selector de items
-        if not enlaces_productos:
-            enlaces_productos = soup.select('.product-item-link') or soup.select('.product-item a')
-
-        print(f"Productos detectados: {len(enlaces_productos)}")
+        # Extraer los productos una vez cargados
+        items = driver.find_elements(By.CLASS_NAME, "product-item")
+        print(f"Productos detectados: {len(items)}")
         
         if os.path.exists(ARCHIVO_MEMORIA):
             with open(ARCHIVO_MEMORIA, "r") as f:
@@ -41,31 +43,28 @@ def revisar_tienda():
         else:
             vistos = set()
 
-        nuevos_encontrados = False
+        nuevos = False
+        for item in items:
+            try:
+                link_tag = item.find_element(By.CLASS_NAME, "product-item-link")
+                nombre = link_tag.text.strip()
+                link = link_tag.get_attribute("href")
+                
+                if link not in vistos:
+                    enviar_mensaje(f"<b>🚨 NUEVA OFERTA</b>\n\n{nombre}\n\n<a href='{link}'>Ver producto</a>")
+                    vistos.add(link)
+                    nuevos = True
+            except:
+                continue
 
-        for link_tag in enlaces_productos:
-            link = link_tag.get('href')
-            nombre = link_tag.get_text().strip()
-            
-            # Limpiamos el nombre porque a veces traen espacios extraños
-            if not nombre:
-                nombre = link.split('/')[-1].replace('.html', '').replace('-', ' ')
-
-            if link and link not in vistos:
-                mensaje = f"<b>🚨 NUEVA OFERTA (Advanced Search)</b>\n\n{nombre.upper()}\n\n<a href='{link}'>Ver producto aquí</a>"
-                enviar_mensaje(mensaje)
-                vistos.add(link) # Guardamos el link que es único
-                nuevos_encontrados = True
-
-        if nuevos_encontrados:
+        if nuevos:
             with open(ARCHIVO_MEMORIA, "w") as f:
                 f.write("\n".join(vistos))
-            print("Novedades enviadas a Telegram.")
-        else:
-            print("No se detectaron cambios en los productos.")
-            
+
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error: No se cargaron los productos en el tiempo esperado. {e}")
+    finally:
+        driver.quit()
 
 if __name__ == "__main__":
     revisar_tienda()
