@@ -1,20 +1,13 @@
 name: Monitor AO Stores
 
 on:
-  push:
-    branches: [ "main" ]
   schedule:
-    # Ajustado para Costa Rica (UTC-6)
-    # 13-23 UTC = 7am a 5pm CR
-    # 00 UTC = 6pm CR
     - cron: '*/10 13-23,0 * * *'
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,7 +18,10 @@ jobs:
           python-version: '3.9'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: |
+          pip install requests selenium webdriver-manager
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
 
       - name: Run monitor
         env:
@@ -33,7 +29,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python monitor.py
 
-      - name: Commit and push changes
+      - name: Commit changes
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
